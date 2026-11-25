@@ -6,6 +6,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: './', // <-- Added to fix GitHub Pages 404 asset loading errors
     plugins: [
       react(),
       tailwindcss(),

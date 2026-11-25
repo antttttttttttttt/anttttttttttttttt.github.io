@@ -1,12 +1,6 @@
 export const DEFAULT_ROOT_FOLDER_ID = '1TzTBBaYy47J3da4AAB_agrhiwxultxpv';
 export const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
-// Set VITE_GOOGLE_API_KEY in your .env / GitHub Actions secrets, or paste your key as fallback
-const GOOGLE_API_KEY =
-  import.meta.env.VITE_GOOGLE_API_KEY || 'YOUR_GOOGLE_API_KEY';
-
-const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
-
 export interface DriveItem {
   id: string;
   name: string;
@@ -140,20 +134,38 @@ export function formatShortDate(raw?: string): string {
 const folderCache = new Map<string, FolderListingResult>();
 const treeCache = new Map<string, DriveItem[]>();
 
-async function driveFetch<T>(url: string): Promise<T> {
-  if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'YOUR_GOOGLE_API_KEY') {
-    throw new Error(
-      'Missing Google API Key. Set VITE_GOOGLE_API_KEY or paste your key in drive.ts.'
-    );
+/* ------------------------------------------------------------------ */
+/*  Manifest loading (no Google API key needed)                        */
+/*  The manifest is generated at build time by                         */
+/*  scripts/build-drive-manifest.mjs and served from /public.          */
+/* ------------------------------------------------------------------ */
+
+interface Manifest {
+  root: string;
+  generated: string;
+  folders: Record<string, FolderListingResult>;
+}
+
+let manifestPromise: Promise<Manifest> | null = null;
+
+function loadManifest(refresh = false): Promise<Manifest> {
+  if (!manifestPromise || refresh) {
+    const url = `${import.meta.env.BASE_URL}drive-manifest.json`;
+    manifestPromise = fetch(url)
+      .then((r) => {
+        if (!r.ok) {
+          throw new Error(
+            `Could not load drive-manifest.json (${r.status}). Run the manifest build script.`
+          );
+        }
+        return r.json() as Promise<Manifest>;
+      })
+      .catch((err) => {
+        manifestPromise = null; // allow retry after a failure
+        throw err;
+      });
   }
-  const res = await fetch(url);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(
-      data?.error?.message || `Google Drive API error (${res.status}).`
-    );
-  }
-  return data as T;
+  return manifestPromise;
 }
 
 export async function fetchPublicFolder(
@@ -164,55 +176,18 @@ export async function fetchPublicFolder(
     return folderCache.get(folderId)!;
   }
 
-  // 1. Fetch folder metadata to get its name
-  const metaParams = new URLSearchParams({
-    key: GOOGLE_API_KEY,
-    fields: 'id,name,mimeType',
-    supportsAllDrives: 'true',
-    includeItemsFromAllDrives: 'true',
-  });
-  const folderMeta = await driveFetch<{ id: string; name: string }>(
-    `${DRIVE_API_BASE}/${encodeURIComponent(folderId)}?${metaParams.toString()}`
-  );
-
-  // 2. Fetch all children (handling pagination)
-  const items: DriveItem[] = [];
-  let pageToken: string | undefined;
-
-  do {
-    const listParams = new URLSearchParams({
-      key: GOOGLE_API_KEY,
-      q: `'${folderId}' in parents and trashed = false`,
-      fields:
-        'nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink,webContentLink)',
-      pageSize: '1000',
-      supportsAllDrives: 'true',
-      includeItemsFromAllDrives: 'true',
-    });
-    if (pageToken) listParams.set('pageToken', pageToken);
-
-    const listRes = await driveFetch<{
-      files?: DriveItem[];
-      nextPageToken?: string;
-    }>(`${DRIVE_API_BASE}?${listParams.toString()}`);
-
-    if (listRes.files) items.push(...listRes.files);
-    pageToken = listRes.nextPageToken;
-  } while (pageToken);
-
-  const folders = items
-    .filter((item) => item.mimeType === FOLDER_MIME)
-    .sort((a, b) => naturalCompare(a.name, b.name));
-
-  const files = items
-    .filter((item) => item.mimeType !== FOLDER_MIME)
-    .sort((a, b) => naturalCompare(a.name, b.name));
+  const manifest = await loadManifest(refresh);
+  const raw = manifest.folders[folderId];
+  if (!raw) {
+    throw new Error(
+      'Folder not found in the exported archive. Re-run the manifest build.'
+    );
+  }
 
   const result: FolderListingResult = {
-    id: folderMeta.id,
-    name: folderMeta.name,
-    folders,
-    files,
+    ...raw,
+    folders: [...raw.folders].sort((a, b) => naturalCompare(a.name, b.name)),
+    files: [...raw.files].sort((a, b) => naturalCompare(a.name, b.name)),
   };
 
   folderCache.set(folderId, result);

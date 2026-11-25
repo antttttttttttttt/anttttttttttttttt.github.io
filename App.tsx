@@ -409,7 +409,7 @@ export default function App() {
         const matchedFromScan = scanned.filter(
           (f) =>
             f.folderPath === folder.name ||
-            f.folderPath?.startsWith(`${folder.name} / `)
+            f.folderPath?.startsWith(`${folder.name}/`)
         );
         const files =
           matchedFromScan.length > 0

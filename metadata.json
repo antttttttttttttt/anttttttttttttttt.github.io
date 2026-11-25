@@ -1,0 +1,6 @@
+{
+  "name": "Study Archive",
+  "description": "Minimalist early-2000s Google Drive chapter archive and past-paper filter.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -4,14 +4,20 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *' # refresh the Drive listing daily
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -25,6 +31,11 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Build Drive manifest
+        run: node scripts/build-drive-manifest.mjs
+        env:
+          DRIVE_ROOT_FOLDER_ID: 1TzTBBaYy47J3da4AAB_agrhiwxultxpv
+
       - name: Build project
         run: npm run build
 
@@ -34,7 +45,19 @@ jobs:
       - name: Upload dist artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: ./dist
+          name: github-pages
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
           name: 'github-pages'
 
       - name: Deploy to GitHub Pages

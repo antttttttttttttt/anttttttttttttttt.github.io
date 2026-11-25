@@ -456,7 +456,10 @@ export default function App() {
       {/* 50% Opacity Background Image */}
       <div
         aria-hidden="true"
-        className="fixed inset-0 pointer-events-none z-0 opacity-50 bg-[url('/assets/aistudio/image_ebfefcab.png')] bg-cover bg-center bg-no-repeat"
+        className="fixed inset-0 pointer-events-none z-0 opacity-50 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: `url(${import.meta.env.BASE_URL}image_ebfefcab.png)`,
+        }}
       />
 
       {/* Top Bar Contract: 3 zones separated by gap-8 */}

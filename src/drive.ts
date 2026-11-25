@@ -131,21 +131,67 @@ export function formatShortDate(raw?: string): string {
   return raw;
 }
 
+const folderCache = new Map<string, FolderListingResult>();
+const treeCache = new Map<string, DriveItem[]>();
+
+/* ------------------------------------------------------------------ */
+/*  Manifest loading (no Google API key needed)                        */
+/*  The manifest is generated at build time by                         */
+/*  scripts/build-drive-manifest.mjs and served from /public.          */
+/* ------------------------------------------------------------------ */
+
+interface Manifest {
+  root: string;
+  generated: string;
+  folders: Record<string, FolderListingResult>;
+}
+
+let manifestPromise: Promise<Manifest> | null = null;
+
+function loadManifest(refresh = false): Promise<Manifest> {
+  if (!manifestPromise || refresh) {
+    const url = `${import.meta.env.BASE_URL}drive-manifest.json`;
+    manifestPromise = fetch(url)
+      .then((r) => {
+        if (!r.ok) {
+          throw new Error(
+            `Could not load drive-manifest.json (${r.status}). Run the manifest build script.`
+          );
+        }
+        return r.json() as Promise<Manifest>;
+      })
+      .catch((err) => {
+        manifestPromise = null; // allow retry after a failure
+        throw err;
+      });
+  }
+  return manifestPromise;
+}
+
 export async function fetchPublicFolder(
   folderId: string,
   refresh = false
 ): Promise<FolderListingResult> {
-  const params = new URLSearchParams({ id: folderId });
-  if (refresh) params.set('refresh', '1');
+  if (!refresh && folderCache.has(folderId)) {
+    return folderCache.get(folderId)!;
+  }
 
-  const res = await fetch(`/api/drive/folder?${params.toString()}`);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+  const manifest = await loadManifest(refresh);
+  const raw = manifest.folders[folderId];
+  if (!raw) {
     throw new Error(
-      data?.error || `Failed to load folder (${res.status}).`
+      'Folder not found in the exported archive. Re-run the manifest build.'
     );
   }
-  return data as FolderListingResult;
+
+  const result: FolderListingResult = {
+    ...raw,
+    folders: [...raw.folders].sort((a, b) => naturalCompare(a.name, b.name)),
+    files: [...raw.files].sort((a, b) => naturalCompare(a.name, b.name)),
+  };
+
+  folderCache.set(folderId, result);
+  return result;
 }
 
 export async function fetchPublicFolderTree(
@@ -153,20 +199,36 @@ export async function fetchPublicFolderTree(
   maxDepth = 3,
   refresh = false
 ): Promise<DriveItem[]> {
-  const params = new URLSearchParams({
-    id: folderId,
-    maxDepth: String(maxDepth),
-  });
-  if (refresh) params.set('refresh', '1');
-
-  const res = await fetch(`/api/drive/tree?${params.toString()}`);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(
-      data?.error || `Failed to scan subfolders (${res.status}).`
-    );
+  const cacheKey = `${folderId}:${maxDepth}`;
+  if (!refresh && treeCache.has(cacheKey)) {
+    return treeCache.get(cacheKey)!;
   }
-  return (data.files || []) as DriveItem[];
+
+  const collectedFiles: DriveItem[] = [];
+
+  async function walk(currentId: string, currentPath: string, depth: number) {
+    const listing = await fetchPublicFolder(currentId, refresh);
+
+    for (const file of listing.files) {
+      collectedFiles.push({
+        ...file,
+        folderPath: currentPath || listing.name,
+      });
+    }
+
+    if (depth < maxDepth) {
+      await Promise.all(
+        listing.folders.map((sub) => {
+          const nextPath = currentPath ? `${currentPath}/${sub.name}` : sub.name;
+          return walk(sub.id, nextPath, depth + 1);
+        })
+      );
+    }
+  }
+
+  await walk(folderId, '', 0);
+  treeCache.set(cacheKey, collectedFiles);
+  return collectedFiles;
 }
 
 function escapeHtml(text: string): string {

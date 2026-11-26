@@ -1,6 +1,6 @@
 {
   "name": "Study Archive",
-  "description": "Minimalist early-2000s Google Drive chapter archive and past-paper filter.",
+  "description": "Ant Chem Notes",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [""]
 }
